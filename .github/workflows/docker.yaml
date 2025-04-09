@@ -7,7 +7,7 @@ on:
 
 env:
   # 阿里云镜像仓库地址（如：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com）
-  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"
+  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
   # 命名空间（需与阿里云控制台一致）
   ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
   ALIYUN_REPO_NAME: "k8s"  # 仓库名称
