@@ -60,7 +60,7 @@ jobs:
         # 原因：符合Docker规范要求（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s）
         # 知识点：路径拼接规范
         
-        echo "推送路径模板: ${TARGET}:<tag>"  # 调试输出完整路径格式
+        echo "推送路径模板: ${TARGET}/<tag>"  # 调试输出完整路径格式
 
         # ========================================
         # 镜像处理核心逻辑
