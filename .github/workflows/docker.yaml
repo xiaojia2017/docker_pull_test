@@ -6,10 +6,10 @@ on:
     branches: [ main ]
 
 env:
-  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"  # 仓库地址
-  ALIYUN_NAME_SPACE: "docker20250406/k8s"  # 命名空间/仓库名
-  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # 必须使用AccessKey ID
-  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # 必须使用AccessKey Secret
+  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"
+  ALIYUN_NAME_SPACE: "docker20250406/k8s"
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
 
 jobs:
   push-image:
@@ -20,47 +20,55 @@ jobs:
     # ========== 1. 登录阿里云 ==========
     - name: Login to Aliyun
       run: |
-        echo "正在使用用户：$ALIYUN_REGISTRY_USER 登录仓库"
-        echo "$ALIYUN_REGISTRY_PASSWORD" | docker login \
-          -u "$ALIYUN_REGISTRY_USER" \
-          --password-stdin "$ALIYUN_REGISTRY"
-      env:
-        ALIYUN_REGISTRY_USER: ${{ env.ALIYUN_REGISTRY_USER }}
-        ALIYUN_REGISTRY_PASSWORD: ${{ env.ALIYUN_REGISTRY_PASSWORD }}
+        echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
+          -u "${{ env.ALIYUN_REGISTRY_USER }}" \
+          --password-stdin "${{ env.ALIYUN_REGISTRY }}"
 
-    # ========== 2. 调试信息 ==========
-    - name: Verify Variables
+    # ========== 2. 镜像处理核心逻辑 ==========
+    - name: Process and Push Images
       run: |
-        echo "Registry地址：$ALIYUN_REGISTRY"
-        echo "命名空间：$ALIYUN_NAME_SPACE"
-        echo "用户名长度：${#ALIYUN_REGISTRY_USER} 位"
-        echo "密码长度：${#ALIYUN_REGISTRY_PASSWORD} 位"
+        TARGET_PREFIX="${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAME_SPACE }}"
 
-    # ========== 3. 检出代码 ==========
-    - name: Checkout Code
-      uses: actions/checkout@v4
-
-    # ========== 4. 推送镜像 ==========
-    - name: Push Images
-      run: |
         while IFS= read -r line; do
+          # 过滤注释和空行
           [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
 
-          src_image=$(echo "$line" | awk '{print $NF}')
+          # 提取平台参数（如有）
+          platform_arg=$(echo "$line" | grep -oP '--platform \K\S+' || true)
+          original_line=$(echo "$line" | sed 's/--platform [^ ]*//g')
+
+          # 解析原始镜像名称
+          src_image=$(echo "$original_line" | awk '{print $NF}' | sed 's/@sha256:.*//')
+          
+          # 分离镜像名和标签
           image_name=$(echo "$src_image" | awk -F: '{print $1}')
           image_tag=$(echo "$src_image" | awk -F: '{print $2}')
           
-          # 生成目标镜像路径
-          target_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE:$image_tag"
+          # 转换镜像名（替换所有/为_）
+          converted_name=$(echo "$image_name" | sed 's|/|_|g')
           
-          echo "====== 正在推送：$src_image => $target_image ======"
-          docker pull "$src_image"
-          docker tag "$src_image" "$target_image"
-          docker push "$target_image"
-          docker rmi "$src_image" "$target_image"
-        done < ./images.txt
+          # 生成最终镜像名称
+          final_image="${converted_name}:${image_tag}"
+          
+          # 添加平台后缀（如果存在平台参数）
+          if [ -n "$platform_arg" ]; then
+            platform_suffix="-$(echo "$platform_arg" | tr '/' '_')"
+            final_image="${final_image}${platform_suffix}"
+          fi
 
-    # ========== 5. 清理 ==========
-    - name: Cleanup
-      run: |
-        docker system prune -af
+          # 生成目标镜像路径
+          target_image="${TARGET_PREFIX}:${final_image}"
+
+          echo "====== 处理镜像：$src_image => $target_image ======"
+          
+          # 拉取镜像
+          docker pull $src_image
+          
+          # 打标签并推送
+          docker tag $src_image $target_image
+          docker push $target_image
+          
+          # 清理镜像
+          docker rmi $src_image $target_image || true
+
+        done < ./images.txt
