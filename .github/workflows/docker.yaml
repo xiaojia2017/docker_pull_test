@@ -17,14 +17,31 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    # ========== 1. 登录阿里云 ==========
+    # ========== 1. 检出代码（关键路径修正） ==========
+    - name: Checkout Code
+      uses: actions/checkout@v4  # 默认检出到$GITHUB_WORKSPACE根目录
+
+    # ========== 2. 验证文件路径 ==========
+    - name: Validate Files
+      run: |
+        echo "===== 当前目录结构 ====="
+        ls -al
+        echo "===== 验证镜像列表文件 ====="
+        if [ ! -f "./images.txt" ]; then
+          echo "错误：镜像列表文件不存在于仓库根目录"
+          echo "当前路径内容："
+          ls -l
+          exit 1
+        fi
+
+    # ========== 3. 登录阿里云 ==========
     - name: Login to Aliyun
       run: |
         echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
           -u "${{ env.ALIYUN_REGISTRY_USER }}" \
           --password-stdin "${{ env.ALIYUN_REGISTRY }}"
 
-    # ========== 2. 镜像处理核心逻辑 ==========
+    # ========== 4. 镜像处理核心逻辑 ==========
     - name: Process and Push Images
       run: |
         TARGET_PREFIX="${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAME_SPACE }}"
@@ -40,35 +57,24 @@ jobs:
           # 解析原始镜像名称
           src_image=$(echo "$original_line" | awk '{print $NF}' | sed 's/@sha256:.*//')
           
-          # 分离镜像名和标签
-          image_name=$(echo "$src_image" | awk -F: '{print $1}')
-          image_tag=$(echo "$src_image" | awk -F: '{print $2}')
-          
-          # 转换镜像名（替换所有/为_）
-          converted_name=$(echo "$image_name" | sed 's|/|_|g')
-          
-          # 生成最终镜像名称
-          final_image="${converted_name}:${image_tag}"
-          
-          # 添加平台后缀（如果存在平台参数）
-          if [ -n "$platform_arg" ]; then
-            platform_suffix="-$(echo "$platform_arg" | tr '/' '_')"
-            final_image="${final_image}${platform_suffix}"
-          fi
-
-          # 生成目标镜像路径
-          target_image="${TARGET_PREFIX}:${final_image}"
+          # 转换镜像名称（保留原始层级结构）
+          converted_image=$(echo "$src_image" | sed 's|/|_|g')
+          target_image="$TARGET_PREFIX:$converted_image"
 
           echo "====== 处理镜像：$src_image => $target_image ======"
           
           # 拉取镜像
-          docker pull $src_image
+          docker pull "$src_image"
           
           # 打标签并推送
-          docker tag $src_image $target_image
-          docker push $target_image
+          docker tag "$src_image" "$target_image"
+          docker push "$target_image"
           
           # 清理镜像
-          docker rmi $src_image $target_image || true
+          docker rmi "$src_image" "$target_image" || true
 
-        done < ./images.txt
+        done < ./images.txt  # 直接使用当前目录文件
+
+    # ========== 5. 清理阶段 ==========
+    - name: Cleanup
+      run: docker system prune -af
