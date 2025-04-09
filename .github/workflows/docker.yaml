@@ -1,61 +1,97 @@
-name: Aliyun Image Push
+name: Aliyun Image Push  # 工作流名称，标识推送镜像到阿里云
 
 on:
-  workflow_dispatch:
-  push:
+  workflow_dispatch:  # 允许手动触发工作流
+  push:  # 当推送代码到main分支时触发
     branches: [ main ]
 
 env:
-  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"  # 示例：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com
-  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"  # 必须配置命名空间
-  ALIYUN_REPO_NAME: "k8s"
-  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
-  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+  # 阿里云镜像仓库地址（如：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com）
+  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
+  # 命名空间（需与阿里云控制台一致）
+  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"
+  ALIYUN_REPO_NAME: "k8s"  # 仓库名称
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # AccessKey ID
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # AccessKey Secret
 
 jobs:
-  push-image:
-    runs-on: ubuntu-latest
+  push-image:  # 任务名称
+    runs-on: ubuntu-latest  # 使用最新Ubuntu环境
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v4
+    - name: Checkout  # 步骤1：检出代码
+      uses: actions/checkout@v4  # 使用官方代码检出Action
 
-    - name: Docker Login
+    - name: Docker Login  # 步骤2：Docker登录阿里云
       run: |
+        # 使用echo管道传递密码，避免密码泄露到日志
         echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
-          --username "${{ env.ALIYUN_REGISTRY_USER }}" \
-          --password-stdin "${{ env.ALIYUN_REGISTRY }}"
+          --username "${{ env.ALIYUN_REGISTRY_USER }}" \  # 指定AccessKey ID
+          --password-stdin "${{ env.ALIYUN_REGISTRY }}"  # 通过STDIN传递密码
+        # 知识点：docker login安全认证、密码隐藏最佳实践
 
-    - name: Push Images
+    - name: Push Images  # 步骤3：处理并推送镜像
       run: |
-        # 核心修复：强制路径格式校验
-        REGISTRY=$(echo "${ALIYUN_REGISTRY}" | sed 's:/*$::')  # 去除末尾斜杠
-        NAMESPACE=$(echo "${ALIYUN_NAMESPACE}" | sed 's:^/*::;s:/*$::')  # 去除首尾斜杠
-        REPO=$(echo "${ALIYUN_REPO_NAME}" | sed 's:^/*::;s:/*$::')  # 去除首尾斜杠
+        # ========================================
+        # 核心修复：强制路径格式校验（关键步骤）
+        # ========================================
+        # 1. 处理仓库地址（移除末尾斜杠）
+        REGISTRY=$(echo "${ALIYUN_REGISTRY}" | sed 's:/*$::')
+        # 作用：规范化仓库地址格式（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com）
+        # 原因：防止用户输入包含末尾斜杠导致路径错误（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/）
+        # 知识点：sed命令的s:/*$::表示替换末尾所有斜杠为空
+        
+        # 2. 处理命名空间（移除首尾斜杠）
+        NAMESPACE=$(echo "${ALIYUN_NAMESPACE}" | sed 's:^/*::;s:/*$::')
+        # 作用：规范化命名空间格式（如 docker20250406）
+        # 原因：防止用户输入包含多余斜杠（如 /docker20250406/）
+        # 知识点：sed的组合命令用;分隔，^/*匹配开头斜杠，/*$匹配结尾斜杠
+        
+        # 3. 处理仓库名称（移除首尾斜杠）
+        REPO=$(echo "${ALIYUN_REPO_NAME}" | sed 's:^/*::;s:/*$::')
+        # 作用：规范化仓库名称格式（如 k8s）
+        # 原因：防止用户输入包含多余斜杠（如 /k8s/）
+        
+        # 4. 构建完整仓库路径
+        TARGET="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE/$ALIYUN_REPO_NAME"
+        # 作用：生成标准阿里云镜像路径（registry/namespace/repo）
+        # 原因：符合Docker规范要求（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s）
+        # 知识点：路径拼接规范
+        
+        echo "推送路径模板: ${TARGET}:<tag>"  # 调试输出完整路径格式
 
-        # 构建完整仓库路径
-        TARGET="${REGISTRY}/${NAMESPACE}/${REPO}"
-        echo "推送路径模板: ${TARGET}:<tag>"
+        # ========================================
+        # 镜像处理核心逻辑
+        # ========================================
+        while IFS= read -r line; do  # 逐行读取images.txt
+          [[ -z "$line" || "$line" =~ ^# ]] && continue  # 跳过空行和注释行
 
-        while IFS= read -r line; do
-          [[ -z "$line" || "$line" =~ ^# ]] && continue
-
-          # 提取镜像信息
+          # 提取镜像信息（如处理 "nginx:1.27.4"）
           src_image=$(echo "$line" | awk '{print $NF}' | sed 's/@sha256:.*//')
-          image_repo=$(echo "$src_image" | awk -F: '{print $1}')
-          image_tag=$(echo "$src_image" | awk -F: '{print $2}')
+          # 作用：获取原始镜像名称（如 nginx:1.27.4）
+          # 原因：处理可能包含sha256摘要的镜像（如 nginx@sha256:xxx）
+          # 知识点：awk取最后一个字段，sed删除@sha256:后的内容
 
-          # 生成安全标签（符合 Docker 规范）
+          image_repo=$(echo "$src_image" | awk -F: '{print $1}')  # 提取镜像名（如 nginx）
+          image_tag=$(echo "$src_image" | awk -F: '{print $2}')  # 提取标签（如 1.27.4）
+
+          # 生成安全标签（符合Docker规范）
           safe_tag=$(echo "${image_repo}-${image_tag}" | sed -E 's/[^a-zA-Z0-9._-]/_/g')
+          # 作用：将镜像名和标签合并为安全的Docker标签（如 nginx-1.27.4）
+          # 原因：过滤非法字符（如 / 转为 _），避免Docker报错
+          # 知识点：正则表达式 [^a-zA-Z0-9._-] 匹配非法字符
 
-          # 构建目标镜像地址
+          # 构建目标镜像地址（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s:nginx-1.27.4）
           target_image="${TARGET}:${safe_tag}"
-          echo "推送目标: $target_image"
+          echo "推送目标: $target_image"  # 调试输出完整镜像地址
 
-          # 拉取/推送/清理
-          docker pull "$src_image"
-          docker tag "$src_image" "$target_image"
-          docker push "$target_image"
-          docker rmi "$src_image" "$target_image" || true
+          # ========================================
+          # 镜像操作核心命令
+          # ========================================
+          docker pull "$src_image"  # 拉取原始镜像
+          docker tag "$src_image" "$target_image"  # 重命名镜像
+          docker push "$target_image"  # 推送镜像到阿里云
+          docker rmi "$src_image" "$target_image" || true  # 清理镜像（忽略错误）
+          # 知识点：docker操作链、|| true防止清理失败导致流程中断
 
-        done < ./images.txt
+        done < ./images.txt  # 指定输入文件
