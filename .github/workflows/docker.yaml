@@ -34,9 +34,8 @@ jobs:
         # 知识点：docker login安全认证、密码隐藏最佳实践
     - name: Show Secrets
       run: |
-        # 临时解密 Secret（仅限调试，生产环境禁用！）
-        TEMP_VAR="${{ secrets.ALIYUN_REGISTRY }}"  # 将 Secret 赋值给临时变量
-        echo "解密后的变量值: $TEMP_VAR"  # 此时会显示真实值
+        echo "${{ secrets.ALIYUN_REGISTRY }}" > registry.txt
+        echo "Registry (File): $(cat registry.txt)"
 
     - name: Push Images  # 步骤3：处理并推送镜像
       run: |
