@@ -7,7 +7,7 @@ on:
 
 env:
   ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"  # 示例：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com
-  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"  # 示例：docker20250406
+  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"  # 必须配置命名空间（如：docker20250406）
   ALIYUN_REPO_NAME: "k8s"
   ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
   ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
@@ -29,14 +29,12 @@ jobs:
 
     - name: Process and Push Images
       run: |
-        # 打印关键变量（调试用）
-        echo "ALIYUN_REGISTRY: $ALIYUN_REGISTRY"
-        echo "ALIYUN_NAMESPACE: $ALIYUN_NAMESPACE"
-        echo "ALIYUN_REPO_NAME: $ALIYUN_REPO_NAME"
+        # 核心修复：严格遵循阿里云路径规范
+        TARGET_PREFIX="${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/${ALIYUN_REPO_NAME}"
         
-        # 构建基础路径（确保无多余斜杠）
-        TARGET_PREFIX="${ALIYUN_REGISTRY%/}/${ALIYUN_NAMESPACE}/${ALIYUN_REPO_NAME}"
-        echo "Target repository: $TARGET_PREFIX"
+        # 打印完整推送路径（关键调试信息）
+        echo "推送基础路径: $TARGET_PREFIX"
+        echo "完整镜像格式: ${TARGET_PREFIX}:<tag>"
 
         while IFS= read -r line; do
           [[ -z "$line" || "$line" =~ ^# ]] && continue
@@ -50,19 +48,19 @@ jobs:
           image_name=$(echo "$src_image" | awk -F: '{print $1}')
           image_tag=$(echo "$src_image" | awk -F: '{print $2}')
           
-          # 生成安全镜像名（处理特殊字符）
-          converted_name=$(echo "$image_name" | sed 's|/|_|g; s|:|-|g' | sed 's/[^a-zA-Z0-9._-]//g')
-          safe_image_tag=$(echo "$image_tag" | sed 's|/|_|g; s/[^a-zA-Z0-9._-]//g')
+          # 生成安全标签（严格符合Docker规范）
+          safe_name=$(echo "$image_name" | sed -E 's#[^a-zA-Z0-9._/-]##g' | tr '/' '_')
+          safe_tag=$(echo "$image_tag" | sed -E 's#[^a-zA-Z0-9._-]##g')
           
-          # 添加平台后缀
-          final_image="${converted_name}-${safe_image_tag}"
-          [ -n "$platform_arg" ] && final_image+="-$(echo "$platform_arg" | tr '/' '_')"
+          # 构建最终标签（包含平台信息）
+          final_tag="${safe_name}-${safe_tag}"
+          [ -n "$platform_arg" ] && final_tag+="-${platform_arg//\//-}"
 
-          # 生成完整目标镜像路径
-          target_image="${TARGET_PREFIX}:${final_image}"
-          echo "Processing: $src_image ==> $target_image"
+          # 生成完整目标镜像地址
+          target_image="${TARGET_PREFIX}:${final_tag}"
+          echo "处理镜像：$src_image => $target_image"
 
-          # 拉取/处理/推送镜像
+          # 执行推送操作
           docker pull "$src_image"
           docker tag "$src_image" "$target_image"
           docker push "$target_image"
