@@ -13,7 +13,7 @@ env:
   ALIYUN_REPO_NAME: "k8s"  # 仓库名称
   ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # AccessKey ID
   ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # AccessKey Secret
-  echo "16阿里云命名空间: ${{ secrets.ALIYUN_NAMESPACE }}"
+
   echo "阿里云仓库地址: $ALIYUN_REGISTRY"  # 调试输出完整路径格式
 jobs:
   push-image:  # 任务名称
@@ -60,6 +60,7 @@ jobs:
         # 作用：生成标准阿里云镜像路径（registry/namespace/repo）
         # 原因：符合Docker规范要求（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s）
         # 知识点：路径拼接规范
+        echo "16阿里云命名空间: ${{ secrets.ALIYUN_NAMESPACE }}"
         echo "阿里云仓库地址: $ALIYUN_REGISTRY"  # 调试输出完整路径格式
         echo "阿里云命名空间: $ALIYUN_NAMESPACE"  # 调试输出完整路径格式
         echo "阿里云仓库名称: $ALIYUN_REPO_NAME"  # 调试输出完整路径格式
