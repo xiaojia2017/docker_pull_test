@@ -64,12 +64,12 @@ jobs:
         # 作用：生成标准阿里云镜像路径（registry/namespace/repo）
         # 原因：符合Docker规范要求（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s）
         # 知识点：路径拼接规范
-        echo "::debug::16阿里云命名空间: ${{ secrets.ALIYUN_NAMESPACE }}"
-        echo "::debug::阿里云仓库地址: $ALIYUN_REGISTRY"  # 调试输出完整路径格式
-        echo "::debug::阿里云命名空间: $ALIYUN_NAMESPACE"  # 调试输出完整路径格式
-        echo "::debug::阿里云仓库名称: $ALIYUN_REPO_NAME"  # 调试输出完整路径格式
-        echo "::debug::阿里云仓库路径: ${TARGET}"  # 调试输出完整路径格式
-        echo "::debug::推送路径模板: ${TARGET}/<tag>"  # 调试输出完整路径格式
+        echo "16阿里云命名空间: ${{ secrets.ALIYUN_NAMESPACE }}"
+        echo "阿里云仓库地址: $ALIYUN_REGISTRY"  # 调试输出完整路径格式
+        echo "阿里云命名空间: $ALIYUN_NAMESPACE"  # 调试输出完整路径格式
+        echo "阿里云仓库名称: $ALIYUN_REPO_NAME"  # 调试输出完整路径格式
+        echo "阿里云仓库路径: ${TARGET}"  # 调试输出完整路径格式
+        echo "推送路径模板: ${TARGET}/<tag>"  # 调试输出完整路径格式
 
         # ========================================
         # 镜像处理核心逻辑
