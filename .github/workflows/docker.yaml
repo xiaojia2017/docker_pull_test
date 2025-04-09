@@ -6,7 +6,7 @@ on:
     branches: [ main ]
 
 env:
-  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
+  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"
   ALIYUN_NAMESPACE: "docker20250406/k8s"
   ALIYUN_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
   ALIYUN_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
@@ -20,70 +20,74 @@ jobs:
     # ========== 环境初始化 ==========
     - name: Initialize Docker
       run: |
-        # 清理旧Docker数据
         sudo rm -rf /var/lib/docker/*
-        
-        # 禁用所有镜像加速器
         sudo mkdir -p /etc/docker
         echo '{"experimental": true}' | sudo tee /etc/docker/daemon.json
-        
-        # 重启Docker服务
         sudo systemctl restart docker
         sleep 5
-        docker info
+
+    # ========== 安全登录 ==========
+    - name: Login to Aliyun
+      run: |
+        echo "$ALIYUN_PASSWORD" | docker login -u $ALIYUN_USER --password-stdin $ALIYUN_REGISTRY
 
     # ========== 代码检出 ==========
     - name: Checkout Code
       uses: actions/checkout@v4
-      with:
-        path: '.'  # 明确检出到根目录
 
     # ========== 镜像同步核心逻辑 ==========
     - name: Mirror Images
       run: |
-        # 登录阿里云仓库
-        echo "===== 阿里云登录 ====="
-        docker login -u $ALIYUN_USER -p $ALIYUN_PASSWORD $ALIYUN_REGISTRY
-
-        # 定义目标仓库前缀
         TARGET_PREFIX="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE"
 
-        # 处理镜像列表
         while IFS= read -r line; do
           # 过滤注释和空行
           [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
 
-          # 解析原始镜像（完整Docker Hub路径）
-          original_image=$(echo "$line" | awk '{print $NF}' | sed 's/@sha256:.*//')  # 去除哈希
+          # 解析平台参数（如果有）
+          platform_arg=$(echo "$line" | grep -oP '--platform \K\S+' || true)
+          original_line=$(echo "$line" | sed 's/--platform [^ ]*//g')
+
+          # 处理原始镜像名称
+          original_image=$(echo "$original_line" | awk '{print $NF}' | sed 's/@sha256:.*//')
           
-          # 提取镜像名称和标签
-          image_name=$(echo "$original_image" | awk -F/ '{ 
-            if ($1 == "docker.io") {print substr($0, 12)}  # 处理docker.io前缀
-            else if ($1 == "library") {print $2}          # 处理library仓库
-            else {print $0} 
-          }')
+          # 自动补全docker.io前缀
+          if [[ ! "$original_image" =~ / ]]; then
+            original_image="docker.io/library/$original_image"
+          elif [[ ! "$original_image" =~ ^docker.io/ ]]; then
+            original_image="docker.io/$original_image"
+          fi
+
+          # 转换镜像名称（替换所有/为_）
+          converted_image=$(echo "$original_image" | sed 's|docker.io/||g' | sed 's|/|_|g')
           
           # 生成目标镜像名称
-          target_image="$TARGET_PREFIX/$image_name"
+          target_image="$TARGET_PREFIX/$converted_image"
+          
+          # 添加平台后缀（如果存在）
+          if [ -n "$platform_arg" ]; then
+            platform_suffix="-$(echo "$platform_arg" | sed 's|/|_|g')"
+            target_image="${target_image}${platform_suffix}"
+          fi
 
-          echo "====== 镜像同步：$original_image => $target_image ======"
+          echo "====== Syncing: $original_image => $target_image ======"
           
-          # 拉取镜像（直接访问Docker Hub）
-          docker pull $original_image || { echo "镜像拉取失败！"; exit 1; }
+          # 带平台参数的拉取
+          pull_cmd="docker pull"
+          [ -n "$platform_arg" ] && pull_cmd="$pull_cmd --platform $platform_arg"
           
-          # 重新打标签
+          if ! $pull_cmd $original_image; then
+            echo "Error: Failed to pull $original_image"
+            exit 1
+          fi
+
           docker tag $original_image $target_image
           
-          # 推送镜像（带3次重试）
-          for i in {1..3}; do
-            docker push $target_image && break || {
-              echo "推送失败，第$i次重试...";
-              sleep 15;
-              [[ $i -eq 3 ]] && exit 1;
-            }
-          done
+          if ! docker push $target_image; then
+            echo "Error: Failed to push $target_image"
+            exit 1
+          fi
 
-          # 清理镜像
           docker rmi $original_image $target_image || true
 
         done < ./images.txt
@@ -92,5 +96,3 @@ jobs:
     - name: Cleanup
       run: |
         docker system prune -af
-        echo "===== 最终磁盘状态 ====="
-        df -hT
