@@ -1,1 +1,4 @@
-rabbitmq:4.0.8
+rabbitmq:3.13.7
+rabbitmq:3.13-alpine
+node:23.11.0
+mysql:8.0.41-debian
