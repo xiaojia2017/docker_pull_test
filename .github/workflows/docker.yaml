@@ -14,7 +14,6 @@ env:
   ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # AccessKey ID
   ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # AccessKey Secret
 
-  echo "阿里云仓库地址: $ALIYUN_REGISTRY"  # 调试输出完整路径格式
 jobs:
   push-image:  # 任务名称
     runs-on: ubuntu-latest  # 使用最新Ubuntu环境
@@ -32,10 +31,6 @@ jobs:
             --password-stdin \
             "${{ env.ALIYUN_REGISTRY }}"
         # 知识点：docker login安全认证、密码隐藏最佳实践
-    - name: Show Secrets
-      run: |
-        echo "${{ secrets.ALIYUN_REGISTRY }}" > registry.txt
-        echo "Registry (File): $(cat registry.txt)"
 
     - name: Push Images  # 步骤3：处理并推送镜像
       run: |
