@@ -6,10 +6,10 @@ on:
     branches: [ main ]
 
 env:
-  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"
-  ALIYUN_NAMESPACE: "docker20250406/k8s"
-  ALIYUN_USER: "${{ secrets.ALIYUN_USER }}"          # 必须使用AccessKey ID
-  ALIYUN_PASSWORD: "${{ secrets.ALIYUN_PASSWORD }}"  # 必须使用AccessKey Secret
+  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"  # 仓库地址
+  ALIYUN_NAME_SPACE: "docker20250406/k8s"  # 命名空间/仓库名
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # 必须使用AccessKey ID
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # 必须使用AccessKey Secret
 
 jobs:
   push-image:
@@ -19,24 +19,48 @@ jobs:
     steps:
     # ========== 1. 登录阿里云 ==========
     - name: Login to Aliyun
-      run: echo "$ALIYUN_PASSWORD" | docker login -u "$ALIYUN_USER" --password-stdin "$ALIYUN_REGISTRY"
+      run: |
+        echo "正在使用用户：$ALIYUN_REGISTRY_USER 登录仓库"
+        echo "$ALIYUN_REGISTRY_PASSWORD" | docker login \
+          -u "$ALIYUN_REGISTRY_USER" \
+          --password-stdin "$ALIYUN_REGISTRY"
+      env:
+        ALIYUN_REGISTRY_USER: ${{ env.ALIYUN_REGISTRY_USER }}
+        ALIYUN_REGISTRY_PASSWORD: ${{ env.ALIYUN_REGISTRY_PASSWORD }}
 
-    # ========== 2. 检出代码 ==========
+    # ========== 2. 调试信息 ==========
+    - name: Verify Variables
+      run: |
+        echo "Registry地址：$ALIYUN_REGISTRY"
+        echo "命名空间：$ALIYUN_NAME_SPACE"
+        echo "用户名长度：${#ALIYUN_REGISTRY_USER} 位"
+        echo "密码长度：${#ALIYUN_REGISTRY_PASSWORD} 位"
+
+    # ========== 3. 检出代码 ==========
     - name: Checkout Code
       uses: actions/checkout@v4
 
-    # ========== 3. 推送镜像 ==========
+    # ========== 4. 推送镜像 ==========
     - name: Push Images
       run: |
         while IFS= read -r line; do
           [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
 
           src_image=$(echo "$line" | awk '{print $NF}')
-          target_image="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE:$(echo "$src_image" | awk -F: '{print $2}')"
-
-          echo "====== Pushing: $src_image => $target_image ======"
+          image_name=$(echo "$src_image" | awk -F: '{print $1}')
+          image_tag=$(echo "$src_image" | awk -F: '{print $2}')
+          
+          # 生成目标镜像路径
+          target_image="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE:$image_tag"
+          
+          echo "====== 正在推送：$src_image => $target_image ======"
           docker pull "$src_image"
           docker tag "$src_image" "$target_image"
           docker push "$target_image"
           docker rmi "$src_image" "$target_image"
         done < ./images.txt
+
+    # ========== 5. 清理 ==========
+    - name: Cleanup
+      run: |
+        docker system prune -af
