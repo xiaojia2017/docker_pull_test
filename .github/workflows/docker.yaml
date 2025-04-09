@@ -25,9 +25,11 @@ jobs:
     - name: Docker Login  # 步骤2：Docker登录阿里云
       run: |
         # 使用echo管道传递密码，避免密码泄露到日志
-        echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
-          --username "${{ env.ALIYUN_REGISTRY_USER }}" \  # 指定AccessKey ID
-          --password-stdin "${{ env.ALIYUN_REGISTRY }}"  # 通过STDIN传递密码
+        echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | \
+          docker login \
+            -u "${{ env.ALIYUN_REGISTRY_USER }}" \
+            --password-stdin \
+            "${{ env.ALIYUN_REGISTRY }}"
         # 知识点：docker login安全认证、密码隐藏最佳实践
 
     - name: Push Images  # 步骤3：处理并推送镜像
