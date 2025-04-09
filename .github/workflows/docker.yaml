@@ -6,8 +6,8 @@ on:
     branches: [ main ]
 
 env:
-  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"  # 例：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com
-  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"  # 例：docker20250406
+  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"  # 示例：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com
+  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"  # 必须配置命名空间
   ALIYUN_REPO_NAME: "k8s"
   ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
   ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
@@ -28,22 +28,29 @@ jobs:
 
     - name: Push Images
       run: |
-        TARGET="${ALIYUN_REGISTRY}/${ALIYUN_NAMESPACE}/${ALIYUN_REPO_NAME}"
-        echo "推送目标: ${TARGET}"
+        # 核心修复：规范路径拼接逻辑
+        REGISTRY=$(echo "${ALIYUN_REGISTRY}" | sed 's:/*$::')  # 去除末尾斜杠
+        TARGET="${REGISTRY}/${ALIYUN_NAMESPACE}/${ALIYUN_REPO_NAME}"
+        
+        # 打印完整路径（调试关键）
+        echo "推送路径模板: ${TARGET}:<tag>"
 
         while IFS= read -r line; do
           [[ -z "$line" || "$line" =~ ^# ]] && continue
 
-          # 提取镜像名和标签
+          # 提取镜像信息
           src_image=$(echo "$line" | awk '{print $NF}' | sed 's/@sha256:.*//')
-          tag=$(echo "$src_image" | awk -F: '{print $2}')
-          
-          # 生成安全标签
-          safe_tag=$(echo "$src_image" | sed -E 's#[^a-zA-Z0-9._-]#_#g')
-          target_image="${TARGET}:${safe_tag}"
+          image_repo=$(echo "$src_image" | awk -F: '{print $1}')
+          image_tag=$(echo "$src_image" | awk -F: '{print $2}')
 
-          echo "推送镜像: $src_image → $target_image"
-          
+          # 生成安全标签（符合 Docker 规范）
+          safe_tag=$(echo "${image_repo}-${image_tag}" | sed -E 's/[^a-zA-Z0-9._-]/_/g')
+
+          # 构建目标镜像地址
+          target_image="${TARGET}:${safe_tag}"
+          echo "推送目标: $target_image"
+
+          # 拉取/推送/清理
           docker pull "$src_image"
           docker tag "$src_image" "$target_image"
           docker push "$target_image"
