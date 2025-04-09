@@ -1,2 +1,3 @@
 lmenezes/cerebro:0.8.2
+
 elasticsearch:8.17.4
