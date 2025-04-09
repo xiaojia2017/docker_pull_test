@@ -9,10 +9,10 @@ env:
   # 阿里云镜像仓库地址（如：crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com）
   ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"
   # 命名空间（需与阿里云控制台一致）
-  ALIYUN_NAMESPACE: "docker20250406"
+  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAME_SPACE }}"
   ALIYUN_REPO_NAME: "k8s"  # 仓库名称
-  ALIYUN_REGISTRY_USER: ${{ secrets.ALIYUN_REGISTRY_USER }}  # AccessKey ID
-  ALIYUN_REGISTRY_PASSWORD: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}  # AccessKey Secret
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # AccessKey ID
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # AccessKey Secret
 
   echo "阿里云仓库地址: $ALIYUN_REGISTRY"  # 调试输出完整路径格式
 jobs:
