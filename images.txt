@@ -1,1 +1,1 @@
-python:3.9.22/123
+rabbitmq:4.0.8
