@@ -55,7 +55,7 @@ jobs:
         # 原因：防止用户输入包含多余斜杠（如 /k8s/）
         
         # 4. 构建完整仓库路径
-        TARGET="$ALIYUN_REGISTRY/$ALIYUN_NAMESPACE/$ALIYUN_REPO_NAME"
+        TARGET="$REGISTRY/$NAMESPACE/$REPO"
         # 作用：生成标准阿里云镜像路径（registry/namespace/repo）
         # 原因：符合Docker规范要求（如 crpi-xxx.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s）
         # 知识点：路径拼接规范
