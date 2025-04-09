@@ -1,119 +1,132 @@
-name: Docker Image Pipeline
+name: Docker Image CI/CD Pipeline
 
+# 触发条件：手动触发或main分支推送时触发
 on:
   workflow_dispatch:
   push:
     branches: [ main ]
 
 env:
-  # 目标阿里云镜像仓库地址（用户指定的完整地址）
-  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com/docker20250406/k8s"
-  ALIYUN_REGISTRY_USER: ${{ secrets.ALIYUN_REGISTRY_USER }}  # 从Secrets获取用户名
-  ALIYUN_REGISTRY_PASSWORD: ${{ secrets.ALIYUN_REGISTRY_PASSWORD }}  # 从Secrets获取密码
+  # 阿里云容器镜像服务配置
+  ALIYUN_REGISTRY: "crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com"  # 注册表地址
+  ALIYUN_NAME_SPACE: "docker20250406/k8s"  # 命名空间+子目录
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # 从GitHub Secrets获取用户名
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # 从GitHub Secrets获取密码
 
 jobs:
-  build-and-push:
-    name: Docker Image Processing
-    runs-on: ubuntu-latest
+  build:
+    name: Build and Push Images
+    runs-on: ubuntu-latest  # 使用最新版Ubuntu运行器
+    
     steps:
-      # 1. 显示初始磁盘空间
-      - name: Check Initial Disk Space
-        run: |
-          echo "=== Initial Disk Space ==="
+    # ====================== 初始化阶段 ======================
+    - name: Check Disk Space (Before)
+      run: |
+        echo "初始磁盘空间状态："
+        echo "================================================================"
+        df -hT  # 显示磁盘使用情况
+        echo "================================================================"
+
+    # 使用空间优化插件（保留2GB空间，创建128MB交换空间）
+    - name: Optimize Disk Space
+      uses: easimon/maximize-build-space@master
+      with:
+        root-reserve-mb: 2048
+        swap-size-mb: 128
+        remove-dotnet: 'true'  # 移除.NET相关组件
+        remove-haskell: 'true'  # 移除Haskell相关组件
+
+    - name: Restart Docker Daemon
+      run: sudo service docker restart  # 重启Docker服务应用更改
+
+    - name: Check Disk Space (After)
+      run: |
+        echo "优化后磁盘空间状态："
+        echo "================================================================"
+        df -hT
+        echo "================================================================"
+
+    # ====================== 代码检出阶段 ======================
+    - name: Checkout Repository
+      uses: actions/checkout@v4  # 检出Git仓库代码
+      with:
+        fetch-depth: 1  # 仅获取最新提交历史
+
+    # ====================== Docker环境配置 ======================
+    - name: Setup Docker Buildx
+      uses: docker/setup-buildx-action@v3  # 配置Buildx多架构构建
+      with:
+        driver-opts: |
+          image=moby/buildkit:master  # 使用最新版BuildKit
+
+    # ====================== 镜像构建推送阶段 ======================
+    - name: Build and Push Images
+      run: |
+        # 登录阿里云容器镜像服务
+        echo "正在登录阿里云容器镜像服务..."
+        docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
+
+        # 定义目标镜像仓库路径
+        TARGET_REGISTRY="$ALIYUN_REGISTRY/$ALIYUN_NAME_SPACE"
+        echo "目标镜像仓库路径：$TARGET_REGISTRY"
+
+        # 处理images.txt中的每个镜像
+        while IFS= read -r line || [ -n "$line" ]; do
+          # 跳过空行和注释行
+          [[ -z "$line" ]] && continue
+          [[ "$line" =~ ^\s*# ]] && continue
+
+          echo "处理镜像：$line"
+          
+          # 解析平台架构信息（如果有）
+          platform=$(echo "$line" | grep -oP '--platform \K\S+') || true
+          if [ -n "$platform" ]; then
+            platform_prefix="${platform//\//_}_"  # 转换架构格式：linux/amd64 -> linux_amd64_
+          else
+            platform_prefix=""
+          fi
+
+          # 解析原始镜像名称
+          original_image=$(echo "$line" | awk '{print $NF}' | cut -d@ -f1)
+          image_name_tag=$(echo "$original_image" | awk -F/ '{print $NF}')
+          image_name=$(echo "$image_name_tag" | cut -d: -f1)
+          
+          # 生成目标镜像名称
+          target_image="$TARGET_REGISTRY/${platform_prefix}${image_name_tag}"
+          echo "生成目标镜像名称：$target_image"
+
+          # 拉取原始镜像
+          echo "正在拉取原始镜像：$original_image"
+          docker pull $original_image
+
+          # 打标签
+          echo "正在打标签：$original_image => $target_image"
+          docker tag $original_image $target_image
+
+          # 推送镜像
+          echo "正在推送镜像：$target_image"
+          docker push $target_image
+
+          # 清理本地镜像
+          echo "清理本地镜像..."
+          docker rmi $original_image $target_image
+          
+          # 显示磁盘使用情况
+          echo "当前磁盘状态："
           df -hT
-          echo "=========================="
+          
+        done < images.txt  # 从images.txt读取镜像列表
 
-      # 2. 释放磁盘空间（保持原有优化逻辑）
-      - name: Maximize Build Space
-        uses: easimon/maximize-build-space@master
-        with:
-          root-reserve-mb: 2048
-          swap-size-mb: 128
-          remove-dotnet: true
-          remove-haskell: true
-          build-mount-path: '/var/lib/docker/'
+      env:
+        # 传递环境变量给shell脚本
+        ALIYUN_REGISTRY: ${{ env.ALIYUN_REGISTRY }}
+        ALIYUN_NAME_SPACE: ${{ env.ALIYUN_NAME_SPACE }}
 
-      # 3. 重启Docker服务（确保环境稳定）
-      - name: Restart Docker Service
-        run: sudo service docker restart
-
-      # 4. 检出代码（虽然可能用不到，但保留兼容性）
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      # 5. 登录阿里云镜像仓库
-      - name: Login to Aliyun Registry
-        run: |
-          docker login -u $ALIYUN_REGISTRY_USER -p $ALIYUN_REGISTRY_PASSWORD $ALIYUN_REGISTRY
-
-      # 6. 处理并推送镜像（核心逻辑优化）
-      - name: Process and Push Images
-        run: |
-          # 初始化重名检查字典
-          declare -A duplicate_images
-
-          # 第一遍扫描：检查镜像名冲突（仅基于镜像名称，不考虑命名空间）
-          while IFS= read -r line || [ -n "$line" ]; do
-            [[ -z "$line" || $line =~ ^\s*# ]] && continue  # 跳过空行和注释
-            
-            # 提取原始镜像名（去除平台信息和标签）
-            original_image=$(echo "$line" | awk '{gsub(/--platform=/, ""); print $NF}')
-            image_name=$(echo "$original_image" | awk -F[:@] '{print $1}')  # 提取镜像名称（不含标签和摘要）
-            
-            # 记录冲突：同一个镜像名在不同镜像中出现
-            if [[ -n "${duplicate_images[$image_name]}" ]]; then
-              duplicate_images[$image_name]="true"
-            else
-              duplicate_images[$image_name]="false"
-            fi
-          done < images.txt
-
-          # 第二遍处理：拉取、打标签、推送镜像
-          while IFS= read -r line || [ -n "$line" ]; do
-            [[ -z "$line" || $line =~ ^\s*# ]] && continue
-            
-            echo "--- Processing: $line ---"
-            original_image=$(echo "$line" | awk '{print $NF}')  # 原始镜像完整名称
-            platform=$(echo "$line" | awk -F'--platform=' '{if (NF>1) print $2}')  # 提取平台信息
-            
-            # 拉取镜像（支持带平台参数的拉取）
-            if [[ -n "$platform" ]]; then
-              docker pull --platform "$platform" "$original_image"
-            else
-              docker pull "$original_image"
-            fi
-
-            # 生成目标镜像名称
-            image_tag=$(echo "$original_image" | awk -F[:@] '{print $2}' | awk -F@ '{print $1}')  # 提取标签（去除摘要）
-            base_image=$(echo "$original_image" | awk -F[:@] '{print $1}')  # 基础镜像名（不含标签和摘要）
-            image_name=$(basename "$base_image")  # 提取最后一级镜像名称（如nginx）
-            
-            # 处理重名情况：如果有重名，在镜像名前添加原始命名空间（简化逻辑）
-            if [[ "${duplicate_images[$image_name]}" == "true" ]]; then
-              namespace=$(dirname "$base_image" | awk -F'/' '{if (NF>1) print $(NF-1); else print ""}')  # 提取上级命名空间
-              image_name="${namespace}_${image_name}"  # 添加命名空间前缀避免冲突
-            fi
-
-            # 生成平台前缀（如linux_amd64_）
-            platform_prefix=$(echo "$platform" | tr '/' '_' | awk '{if ($0 != "") print $0"_"; else print ""}')
-            
-            # 组合完整目标镜像名
-            target_image="${ALIYUN_REGISTRY}/${platform_prefix}${image_name}:${image_tag}"
-            
-            # 打标签并推送
-            docker tag "$original_image" "$target_image"
-            docker push "$target_image"
-            
-            # 清理本地镜像（保留空间）
-            docker rmi "$original_image" "$target_image"
-            
-            echo "--- Process Complete: $target_image ---"
-            df -hT | grep -E 'Filesystem|/dev'  # 简化磁盘空间显示
-          done < images.txt
-
-      # 7. 显示最终磁盘空间（可选）
-      - name: Check Final Disk Space
-        run: |
-          echo "=== Final Disk Space ==="
-          df -hT
-          echo "========================"
+    # ====================== 最终清理阶段 ======================
+    - name: Final Cleanup
+      run: |
+        echo "最终磁盘空间状态："
+        echo "================================================================"
+        df -hT
+        echo "================================================================"
+        docker system prune -af  # 清理所有Docker缓存
