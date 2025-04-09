@@ -6,11 +6,11 @@ on:
     branches: [ main ]
 
 env:
-  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"
-  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"
-  ALIYUN_REPO_NAME: "k8s"
-  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"
-  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"
+  ALIYUN_REGISTRY: "${{ secrets.ALIYUN_REGISTRY }}"  # 仓库地址（如：crpi-qdxa7r1jpsbtqqwp.cn-shenzhen.personal.cr.aliyuncs.com）
+  ALIYUN_NAMESPACE: "${{ secrets.ALIYUN_NAMESPACE }}"  # 命名空间（如：docker20250406）
+  ALIYUN_REPO_NAME: "k8s"  # 仓库名称（固定值）
+  ALIYUN_REGISTRY_USER: "${{ secrets.ALIYUN_REGISTRY_USER }}"  # AccessKey ID
+  ALIYUN_REGISTRY_PASSWORD: "${{ secrets.ALIYUN_REGISTRY_PASSWORD }}"  # AccessKey Secret
 
 jobs:
   push-image:
@@ -18,54 +18,62 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # ========== 1. 检出代码 ==========
-      - name: Checkout Code
-        uses: actions/checkout@v4
+    # ========== 1. 检出代码 ==========
+    - name: Checkout Code
+      uses: actions/checkout@v4
 
-      # ========== 2. 登录阿里云 ==========
-      - name: Login to Aliyun
-        run: |
-          echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
-            -u "${{ env.ALIYUN_REGISTRY_USER }}" \
-            --password-stdin "${{ env.ALIYUN_REGISTRY }}"
+    # ========== 2. 登录阿里云 ==========
+    - name: Login to Aliyun
+      run: |
+        echo "${{ env.ALIYUN_REGISTRY_PASSWORD }}" | docker login \
+          -u "${{ env.ALIYUN_REGISTRY_USER }}" \
+          --password-stdin "${{ env.ALIYUN_REGISTRY }}"
 
-      # ========== 3. 镜像处理核心逻辑 ==========
-      - name: Process and Push Images
-        run: |
-          # 定义目标路径
-          TARGET_PREFIX="${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.ALIYUN_REPO_NAME }}"
-          TARGET_PREFIX=$(echo "$TARGET_PREFIX" | sed 's|//|/|g')
-          echo "TARGET_PREFIX=$TARGET_PREFIX"
+    # ========== 3. 镜像处理核心逻辑（关键修复） ==========
+    - name: Process and Push Images
+      run: |
+        # 定义目标路径（正确拼接命名空间和仓库名称）
+        TARGET_PREFIX="${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.ALIYUN_REPO_NAME }}"
 
-          while IFS= read -r line; do
-            [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
+        while IFS= read -r line; do
+          [[ -z "$line" ]] || [[ "$line" =~ ^# ]] && continue
 
-            platform_arg=$(echo "$line" | sed -n 's/.*--platform \([^ ]*\).*/\1/p')
-            original_line=$(echo "$line" | sed 's/--platform [^ ]*//')
+          # 提取平台参数（兼容性写法）
+          platform_arg=$(echo "$line" | sed -n 's/.*--platform \([^ ]*\).*/\1/p')
+          original_line=$(echo "$line" | sed 's/--platform [^ ]*//')
 
-            src_image=$(echo "$original_line" | awk '{print $NF}' | sed 's/@sha256:.*//')
-            image_name=$(echo "$src_image" | awk -F: '{print $1}')
-            image_tag=$(echo "$src_image" | awk -F: '{print $2}')
+          # 解析原始镜像名称
+          src_image=$(echo "$original_line" | awk '{print $NF}' | sed 's/@sha256:.*//')
+          
+          # 分离镜像名和标签
+          image_name=$(echo "$src_image" | awk -F: '{print $1}')
+          image_tag=$(echo "$src_image" | awk -F: '{print $2}')
+          
+          # 转换镜像名称（修复路径问题）
+          converted_name=$(echo "$image_name" | sed 's|/|_|g; s|:|-|g')
+          safe_image_tag=$(echo "$image_tag" | sed 's|/|_|g')
+          
+          # 生成最终镜像名称
+          final_image="${converted_name}-${safe_image_tag}"
+          
+          # 添加平台后缀
+          if [ -n "$platform_arg" ]; then
+            platform_suffix="-$(echo "$platform_arg" | tr '/' '_')"
+            final_image="${final_image}${platform_suffix}"
+          fi
 
-            converted_name=$(echo "$image_name" | sed 's|@|-|g')
-            safe_image_tag=$(echo "$image_tag" | sed 's|[/:@]|-|g')
-            final_image="${converted_name}-${safe_image_tag}"
+          # 生成合法目标路径
+          target_image="${TARGET_PREFIX}:${final_image}"
 
-            if [ -n "$platform_arg" ]; then
-              platform_suffix="-$(echo "$platform_arg" | tr '/' '_')"
-              final_image="${final_image}${platform_suffix}"
-            fi
+          echo "====== 处理镜像：$src_image => $target_image ======"
+          
+          docker pull "$src_image"
+          docker tag "$src_image" "$target_image"
+          docker push "$target_image"
+          docker rmi "$src_image" "$target_image" || true
 
-            target_image="${TARGET_PREFIX}:${final_image}"
-            echo "target_image=$target_image"
+        done < ./images.txt
 
-            docker pull "$src_image"
-            docker tag "$src_image" "$target_image"
-            docker push "$target_image"
-            docker rmi "$src_image" "$target_image" || true
-
-          done < ./images.txt
-
-      # ========== 4. 清理阶段 ==========
-      - name: Cleanup
-        run: docker system prune -af
+    # ========== 4. 清理阶段 ==========
+    - name: Cleanup
+      run: docker system prune -af
