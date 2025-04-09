@@ -28,11 +28,13 @@ jobs:
 
     - name: Push Images
       run: |
-        # 核心修复：规范路径拼接逻辑
+        # 核心修复：强制路径格式校验
         REGISTRY=$(echo "${ALIYUN_REGISTRY}" | sed 's:/*$::')  # 去除末尾斜杠
-        TARGET="${REGISTRY}/${ALIYUN_NAMESPACE}/${ALIYUN_REPO_NAME}"
-        
-        # 打印完整路径（调试关键）
+        NAMESPACE=$(echo "${ALIYUN_NAMESPACE}" | sed 's:^/*::;s:/*$::')  # 去除首尾斜杠
+        REPO=$(echo "${ALIYUN_REPO_NAME}" | sed 's:^/*::;s:/*$::')  # 去除首尾斜杠
+
+        # 构建完整仓库路径
+        TARGET="${REGISTRY}/${NAMESPACE}/${REPO}"
         echo "推送路径模板: ${TARGET}:<tag>"
 
         while IFS= read -r line; do
