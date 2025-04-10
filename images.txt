@@ -1,1 +1,3 @@
-jenkins/jenkins:2.505
+jenkins/jenkins:2.442
+jenkins/jenkins:2.391
+jenkins/jenkins:2.392-alpine
