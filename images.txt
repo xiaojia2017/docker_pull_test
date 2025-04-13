@@ -1,1 +1,5 @@
-docker:26.1.4
+node:18.16.0
+centos:8.5.2111
+redis:7.2.1
+mysql:8.0.33
+mariadb:10.11.4
