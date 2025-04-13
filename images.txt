@@ -1,6 +1,1 @@
-kibana:8.13.4
-logstash:8.13.4
-elasticsearch:8.13.4
-kibana:6.1.1
-logstash:6.1.1
-elasticsearch:6.1.1
+docker:26.1.4
