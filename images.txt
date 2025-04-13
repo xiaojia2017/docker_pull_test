@@ -1,5 +1,4 @@
-node:18.16.0
-centos:8.5.2111
+centos:centos7.9.2009
 redis:7.2.1
 mysql:8.0.33
 mariadb:10.11.4
