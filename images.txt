@@ -1,1 +1,5 @@
-rancher/mirrored-pause:3.6
+rancher/klipper-lb:v0.4.13
+rancher/mirrored-metrics-server:v0.7.2
+rancher/local-path-provisioner:v0.0.31
+rancher/klipper-helm:v0.9.4-build20250113
+rancher/mirrored-coredns-coredns:1.12.0
